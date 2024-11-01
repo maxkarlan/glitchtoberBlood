@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Maxwell's Glitchtober</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      let x, y;
+      let angle;
+      let radius = 10;
+      let speed = 5;
+      let xSpeed, ySpeed;
+      let noiseOffsetX = 0;
+      let noiseOffsetY = 10000; // Different offset for X and Y for more variability
+      let time = 0;
+      let maxLineLength = 500; // Maximum number of points that should be visible
+
+      let paintMap; // 2D array to track painted regions
+      let islandCounter = 0; // Counter for islands formed
+      let overlapDetected = false; // Track when the line overlaps a previously drawn area
+
+      let continuousLine = [];
+      let minOverlapDistance = 2; // Minimum distance between points to detect an overlap
+      let minOverlapDelay = 100; // Buffer: Number of points after which overlap can be checked
+
+      let brightnessUpdateInterval = 5; // Number of frames between each brightness change
+      let brightnessCounter = 0; // Counter to track frames
+      let currentSaturation = 100; // Initial brightness
+
+      let baseSpeed; // Variable to store speed proportional to window size
+      let previousCanvasSize;
+
+      function setup() {
+        updateCanvasSize(); // Set the initial canvas size
+      }
+
+      function updateCanvasSize() {
+        let canvasSize = min(windowWidth, windowHeight); // Use the smaller of the two dimensions
+        let canvas = createCanvas(canvasSize, canvasSize); // Create a square canvas
+        canvas.position((windowWidth - canvasSize) / 2, (windowHeight - canvasSize) / 2); // Center the canvas
+        colorMode(HSB, 360, 100, 100); // Set color mode to HSB
+
+        if (previousCanvasSize) {
+        // Compute the ratio of the new canvas size to the previous size
+        let resizeRatio = canvasSize / previousCanvasSize;
+
+        // Reproportion the animation's properties
+        x *= resizeRatio;
+        y *= resizeRatio;
+        xSpeed *= resizeRatio;
+        ySpeed *= resizeRatio;
+        radius *= resizeRatio;
+
+        // Re-scale the points in the continuousLine array
+        for (let i = 0; i < continuousLine.length; i++) {
+          continuousLine[i][0] *= resizeRatio;
+          continuousLine[i][1] *= resizeRatio;
+        }
+      }
+
+        baseSpeed = canvasSize / 100; // Set the base speed proportional to the canvas size
+        previousCanvasSize = canvasSize; // Store the current canvas size for future reference
+        resetAnimation(); // Reset the animation whenever the canvas is updated
+      }
+
+      function resetAnimation() {
+        background(0, 0, 0); // Clear the background
+        x = random(width);
+        y = random(height);
+        angle = random(TWO_PI);
+
+        // Set initial random speeds proportional to the canvas size
+        xSpeed = random(-baseSpeed, baseSpeed);
+        ySpeed = random(-baseSpeed, baseSpeed);
+
+        // Reinitialize the 2D array for tracking painted areas
+        paintMap = createEmpty2DArray(width, height);
+
+        // Reset the continuous line array
+        continuousLine = [];
+        islandCounter = 0;
+        overlapDetected = false;
+      }
+
+      function windowResized() {
+        updateCanvasSize(); // Update the canvas size and position when the window is resized
+        background(0); // Reset the background to black when resizing
+        paintMap = createEmpty2DArray(width, height); // Reinitialize the paint map
+      }
+
+      let pixelsNeedUpdate = false; // Flag to track if we need to update pixels
+
+      function draw() {
+        // Clear the previous frame to only draw the new state
+        background(0,0); // Clear the canvas with a black background
+
+        // Redraw the filled areas from the paintMap
+        fillCells();
+        fadePaintMap(); // Gradually fade out the painted areas
+
+        // Update position
+        x += cos(angle) * baseSpeed;
+        y += sin(angle) * baseSpeed;
+
+        // Check boundaries and bounce
+        if (x < radius || x > width - radius) {
+          angle = PI - angle;
+          x = constrain(x, radius, width - radius);
+        }
+        if (y < radius || y > height - radius) {
+          angle = -angle;
+          y = constrain(y, radius, height - radius);
+        }
+
+  // Add slight random variation to angle
+  angle += random(-0.1, 0.1);
+
+  // Reset visited map each frame for dynamic island detection
+  let visitedMap = createEmpty2DArray(width, height);
+
+  continuousLine.push([x, y]); // Track the path
+
+  // Remove oldest points if the line exceeds the maximum length
+  if (continuousLine.length > maxLineLength) {
+    continuousLine.shift(); // Remove the oldest point
+  }
+
+// Draw the continuous line and noise around it
+stroke(0); // black line
+  strokeWeight(5);
+
+  if (continuousLine.length > 1) {
+    beginShape();
+    for (let i = 0; i < continuousLine.length; i++) {
+      let posX = continuousLine[i][0];
+      let posY = continuousLine[i][1];
+
+      // Base line
+      vertex(posX, posY);
+
+      // Add noise on either side of the line
+      let noiseX = map(noise(noiseOffsetX + i * 0.1), 0, 1, -10, 10); // Adjust noise scale and range for thickness
+      let noiseY = map(noise(noiseOffsetY + i * 0.1), 0, 1, -10, 10);
+
+      // Draw noisy points
+      stroke(0); // Lighter color for noise
+      strokeWeight(5);
+      point(posX + noiseX, posY + noiseY);
+      point(posX - noiseX, posY - noiseY);
+    }
+    endShape();
+  }
+
+  // Update brightness only every 'brightnessUpdateInterval' frames
+  if (brightnessCounter % brightnessUpdateInterval === 0) {
+    currentSaturation = random(0, 100); // Random brightness between 0 (black) and 100 (white)
+  }
+  brightnessCounter++; // Increment the frame counter
+
+  // Set the stroke for the object (no fill)
+  fill(0, currentSaturation, 100); // Set grayscale fill (HSB mode: hue = 0, saturation = 0)
+  stroke(0, 0, 0);
+  strokeWeight(1);
+
+  // Draw the continuous line and track it
+  stroke(0); // black line
+  strokeWeight(5);
+
+  if (continuousLine.length > 1) {
+    beginShape();
+    for (let i = 0; i < continuousLine.length; i++) {
+      vertex(continuousLine[i][0], continuousLine[i][1]);
+      markLineAsPainted(continuousLine[i][0], continuousLine[i][1]);
+    }
+    endShape();
+  }
+
+  // Check for overlap with previously painted points, but only if the line is long enough
+  overlapDetected = checkOverlap(x, y);
+  if (overlapDetected) {
+    console.log("Overlap detected! Checking for islands...");
+
+    dynamicIslandDetection(visitedMap);
+  }
+
+  // Use Perlin noise to create smooth curves in movement
+  let noiseX = map(noise(noiseOffsetX), 0, 1, -1, 1); // Adjust range to [-1, 1] for directional movement
+  let noiseY = map(noise(noiseOffsetY), 0, 1, -1, 1); // Different noise offsets for X and Y
+
+  // Increment noise offsets to create a smooth flowing motion
+  noiseOffsetX += 0.04; // Increased speed for faster curves
+  noiseOffsetY += 0.04;
+
+  // Apply the noise to the speed for smoother curved movement, modulated by the ebb and flow
+  xSpeed = noiseX * 15; // Increased multiplier for faster movement
+  ySpeed = noiseY * 15;
+
+  // Update the position based on the new velocity
+  x += xSpeed;
+  y += ySpeed;
+}
+
+
+// Define fillCells function
+function fillCells() {
+  loadPixels(); // Load the pixel array
+  for (let i = 0; i < width; i++) {
+    for (let j = 0; j < height; j++) {
+      if (paintMap[i][j] === 3) {
+        let randomBrightness = random(0, 100);
+        set(i, j, color(0, 0, randomBrightness));
+      }
+    }
+  }
+  updatePixels(); // Apply the changes
+}
+
+      function createEmpty2DArray(w, h) {
+        let arr = [];
+        for (let i = 0; i < w; i++) {
+          arr[i] = [];
+          for (let j = 0; j < h; j++) {
+            arr[i][j] = 0; // 0 means not painted (black)
+          }
+        }
+        return arr;
+      }
+
+      function markLineAsPainted(x, y) {
+        // Mark a larger area around the line as painted (white)
+        let startX = max(0, floor(x - .1)); // Increase the surrounding area
+        let endX = min(width, floor(x + .1)); // Increase the surrounding area
+        let startY = max(0, floor(y - .1)); // Increase the surrounding area
+        let endY = min(height, floor(y + .1)); // Increase the surrounding area
+
+        for (let i = startX; i < endX; i++) {
+          for (let j = startY; j < endY; j++) {
+            paintMap[i][j] = 3; // Increase the value (e.g., to 3) to indicate a stronger painting effect
+          }
+        }
+      }
+
+      function fadePaintMap() {
+        for (let i = 0; i < width; i++) {
+          for (let j = 0; j < height; j++) {
+            if (paintMap[i][j] > 0) {
+              paintMap[i][j] -= 0.05; // Gradually decrease the value (this controls the fade speed)
+              paintMap[i][j] = max(0, paintMap[i][j]); // Ensure it doesn't go below 0
+            }
+          }
+        }
+      }
+
+
+      function checkOverlap(x, y) {
+        // Check if the current point overlaps with any previously painted point
+        let currentPoint = createVector(x, y);
+
+        // Only check for overlap after enough points have been drawn (minOverlapDelay)
+        if (continuousLine.length > minOverlapDelay) {
+          for (let i = 0; i < continuousLine.length - minOverlapDelay; i++) {
+            let previousPoint = createVector(continuousLine[i][0], continuousLine[i][1]);
+            if (currentPoint.dist(previousPoint) < minOverlapDistance) {
+              return true; // Overlap detected
+            }
+          }
+        }
+        return false;
+      }
+
+      function checkBoundaries() {
+  // Reverse direction on the corresponding axis when hitting the boundaries
+
+  // If the line hits the left or right boundary
+  if (x < 0) {
+    x = 0; // Ensure the object stays inside the boundary
+    xSpeed *= -1; // Reverse the x-axis speed (left to right)
+  }
+  if (x > width) {
+    x = width; // Ensure the object stays inside the boundary
+    xSpeed *= -1; // Reverse the x-axis speed (right to left)
+  }
+
+  // If the line hits the top or bottom boundary
+  if (y < 0) {
+    y = 0; // Ensure the object stays inside the boundary
+    ySpeed *= -1; // Reverse the y-axis speed (top to bottom)
+  }
+  if (y > height) {
+    y = height; // Ensure the object stays inside the boundary
+    ySpeed *= -1; // Reverse the y-axis speed (bottom to top)
+  }
+}
+
+
+
+      function dynamicIslandDetection(visitedMap) {
+        // Loop through the paintMap and check for enclosed black areas only when overlap is detected
+        for (let i = 1; i < width - 1; i++) {
+          for (let j = 1; j < height - 1; j++) {
+            if (paintMap[i][j] === 0 && visitedMap[i][j] === 0) {
+              // Perform flood fill and check for enclosure in black areas
+              let fillCells = [];
+              let enclosed = floodFillCheck(i, j, visitedMap, fillCells);
+              if (enclosed) {
+                // If the black region is enclosed, turn only that region grayscale
+                floodFillGrayscale(fillCells);
+                islandCounter++;
+                console.log("New island formed! Total islands: " + islandCounter);
+              }
+            }
+          }
+        }
+      }
+
+      function floodFillCheck(x, y, visitedMap, fillCells) {
+        let stack = [[x, y]];
+        let enclosed = true;
+        let boundaryReached = false;
+
+        // Perform a depth-first flood fill
+        while (stack.length > 0) {
+          let [cx, cy] = stack.pop();
+          
+          if (cx >= 0 && cx < width && cy >= 0 && cy < height && visitedMap[cx][cy] === 0 && paintMap[cx][cy] === 0) {
+            // Mark as visited
+            visitedMap[cx][cy] = 1;
+
+            // Store cell to potentially fill with gray later
+            fillCells.push([cx, cy]);
+
+            // Check if this black region can escape (i.e., reach the boundary)
+            if (cx === 0 || cx === width - 1 || cy === 0 || cy === height - 1) {
+              enclosed = false;
+              boundaryReached = true;
+              break; // Stop if the region can escape to the boundary
+            }
+
+            // Add all neighbors to the stack (4-direction flood fill)
+            stack.push([cx - 1, cy]);
+            stack.push([cx + 1, cy]);
+            stack.push([cx, cy - 1]);
+            stack.push([cx, cy + 1]);
+          }
+        }
+
+        return enclosed;
+      }
+
+      function floodFillGrayscale(fillCells) {
+  // Grayscale fill, with random brightness for each pixel in the enclosed area
+  let randomSaturation = random(0, 100); // Random brightness for grayscale
+  
+  // Store all points to fill more than once
+  let extendedFillCells = [...fillCells];
+  
+  // Increase the number of areas filled by duplicating the fill process
+  for (let i = 0; i < fillCells.length; i++) {
+    let [cx, cy] = fillCells[i];
+    paintMap[cx][cy] = 2; // Mark as filled
+    set(cx, cy, color(0, randomSaturation, 100)); // Set grayscale color
+  }
+
+  // Add more points around the existing ones to fill larger areas
+  for (let i = 0; i < fillCells.length; i++) {
+    let [cx, cy] = fillCells[i];
+
+    // Surrounding pixels (you can add more logic to extend it in different directions)
+    let neighbors = [
+      [cx + 1, cy],
+      [cx - 1, cy],
+      [cx, cy + 1],
+      [cx, cy - 1]
+    ];
+
+    // Add these neighbors to the extended fill list
+    for (let j = 0; j < neighbors.length; j++) {
+      let [nx, ny] = neighbors[j];
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        extendedFillCells.push([nx, ny]); // Add neighboring pixels
+      }
+    }
+  }
+
+  // Apply the grayscale to extended filled areas
+  for (let i = 0; i < extendedFillCells.length; i++) {
+    let [cx, cy] = extendedFillCells[i];
+    let randomSaturation = random(0, 100); // Randomize brightness for more glitchy effect
+    set(cx, cy, color(0, randomSaturation, 100));
+  }
+
+  // Ensure the pixels persist for longer by updating them slowly
+  updatePixels(); // Apply the changes to the canvas
+
+  // Optionally, use a timeout to hold them longer
+  setTimeout(() => {
+    updatePixels(); // Refresh after a delay to allow the grayscale to linger
+  }, 5000); // Adjust this delay to make them stay longer
+}
+    </script>
+  </body>
+</html>
